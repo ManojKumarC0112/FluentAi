@@ -38,6 +38,23 @@ export default function ProfilePage() {
 
     if (loading || !data) return <div className="p-8 text-white/50 text-center animate-pulse">Loading Profile Data...</div>
 
+    const handleSaveName = async () => {
+        setEditName(false)
+        try {
+            const token = await getToken()
+            await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/analytics/profile`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ name: name })
+            })
+        } catch (e) {
+            console.error("Failed to save name", e)
+        }
+    }
+
     return (
         <div className="p-6 md:p-8 max-w-4xl">
             <div className="flex items-center gap-3 mb-6">
@@ -63,7 +80,7 @@ export default function ProfilePage() {
                                 <div className="flex items-center gap-2">
                                     <input value={name} onChange={(e) => setName(e.target.value)}
                                         className="input text-lg font-bold py-1.5 px-3 h-auto w-48" autoFocus />
-                                    <button onClick={() => setEditName(false)} className="text-emerald-400">
+                                    <button onClick={handleSaveName} className="text-emerald-400">
                                         <Check className="w-4 h-4" />
                                     </button>
                                 </div>

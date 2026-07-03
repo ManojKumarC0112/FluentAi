@@ -22,9 +22,7 @@ def get_conversation_history(db: Session = Depends(get_db), current_user = Depen
         # Get first message snippet
         first_msg = db.query(Message).filter(Message.conversation_id == c.id, Message.role == "user").order_by(Message.created_at.asc()).first()
         snippet = first_msg.content if first_msg else "No speech recorded."
-        
-        # Pull actual scores if we had a dedicated score table or calculate them
-        # ForMVP we just pick from standard score or calculate average
+        word_count = len(snippet.split())
         
         result.append({
             "id": str(c.id),
@@ -33,11 +31,11 @@ def get_conversation_history(db: Session = Depends(get_db), current_user = Depen
             "date": c.created_at.isoformat()[:10],
             "duration": c.duration_seconds or 0,
             "snippet": snippet,
-            "fluency": 8.2,
-            "grammar": 7.5,
-            "vocabulary": 8.0,
-            "words": 200,
-            "corrections": 2
+            "fluency": c.score_fluency or 0.0,
+            "grammar": c.score_grammar or 0.0,
+            "vocabulary": c.score_vocabulary or 0.0,
+            "words": word_count,
+            "corrections": 0  # Could aggregate total grammar_corrections from messages here if desired
         })
         
     return result

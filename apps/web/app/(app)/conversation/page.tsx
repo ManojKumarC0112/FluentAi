@@ -7,7 +7,9 @@ import {
     Mic, MicOff, Volume2, VolumeX, Square, Play,
     ChevronDown, Sparkles, AlertCircle, BookOpen, X, Loader2, ArrowLeft
 } from 'lucide-react'
+import { useAuth } from '@clerk/nextjs'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import type { ConversationMode, GrammarCorrection, VocabSuggestion } from '@/lib/types'
 
 const MODE_CONFIG: Record<ConversationMode, { label: string; emoji: string; systemHint: string; color: string }> = {
@@ -55,9 +57,13 @@ function ConversationInner() {
     const mode: ConversationMode = rawMode && MODE_CONFIG[rawMode] ? rawMode : 'normal_chat'
     const modeConfig = MODE_CONFIG[mode]
 
+    const { isLoaded, userId } = useAuth()
+    const router = useRouter()
+
     const [isRecording, setIsRecording] = useState(false)
     const [isAISpeaking, setIsAISpeaking] = useState(false)
     const [isProcessing, setIsProcessing] = useState(false)
+    const [connectionError, setConnectionError] = useState<string | null>(null)
     const [isMuted, setIsMuted] = useState(false)
     const [messages, setMessages] = useState<Message[]>([
         { role: 'assistant', content: `Hello! I'm your AI English coach. ${modeConfig.systemHint}. Let's begin — what would you like to talk about?`, timestamp: new Date() }
@@ -84,10 +90,14 @@ function ConversationInner() {
     }, [messages])
 
     useEffect(() => {
+        if (!isLoaded || !userId) return;
+
         // Initialize WebSocket connection
         const convId = Math.random().toString(36).substring(7)
         const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
-        const ws = new WebSocket(`${wsUrl}/api/v1/conversation/${convId}`)
+        const ws = new WebSocket(`${wsUrl}/api/v1/conversation/${convId}?userId=${userId}&mode=${mode}`)
+
+        ws.onopen = () => setConnectionError(null)
 
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data)
@@ -135,9 +145,23 @@ function ConversationInner() {
             }
         }
 
+        ws.onclose = (event) => {
+            console.log("WebSocket disconnected", event)
+            setIsProcessing(false)
+            setIsRecording(false)
+            if (event.code !== 1000) {
+                setConnectionError("Connection lost. Please try refreshing.")
+            }
+        }
+
+        ws.onerror = (error) => {
+            console.error("WebSocket error", error)
+            setConnectionError("Network error occurred.")
+        }
+
         wsRef.current = ws
         return () => ws.close()
-    }, [])
+    }, [isLoaded, userId])
 
     // When mode changes, inform the backend safely without disconnecting
     useEffect(() => {
@@ -189,6 +213,14 @@ function ConversationInner() {
         setLiveTranscript('Processing audio...')
     }
 
+    const endSession = () => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'end_session' }))
+            wsRef.current.close(1000)
+        }
+        router.push('/dashboard')
+    }
+
     const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
     return (
@@ -227,9 +259,16 @@ function ConversationInner() {
                     <button onClick={() => setIsMuted(!isMuted)} className="btn-ghost p-2">
                         {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
                     </button>
-                    <button className="btn-secondary text-sm py-2">End Session</button>
+                    <button onClick={endSession} className="btn-secondary text-sm py-2">End Session</button>
                 </div>
             </div>
+
+            {connectionError && (
+                <div className="bg-red-500/20 text-red-400 text-sm px-6 py-2 border-b border-red-500/40 text-center flex items-center justify-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    {connectionError}
+                </div>
+            )}
 
             <div className="flex flex-1 min-h-0 gap-0">
                 {/* Chat area */}

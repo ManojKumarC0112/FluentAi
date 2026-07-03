@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.db.database import get_db
-from app.models.domain import Conversation, Message
+from app.models.domain import Conversation, User, Message
 from app.api.deps import get_current_user_from_token
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from datetime import datetime, timedelta
@@ -24,8 +24,10 @@ def get_dashboard_stats(db: Session = Depends(get_db), current_user = Depends(ge
     # Ideally conversation.duration_seconds is properly populated
     total_duration_sec = db.query(func.sum(Conversation.duration_seconds)).filter(Conversation.user_id == current_user.id).scalar() or 0
     
-    # 3. Overall average scores (using mock 8.0 if no real data for MVP, but should aggregate from conversation_scores)
-    # Since we didn't populate scores array in Conversation model in MVP yet, we'll return structured placeholder data for charts
+    # 3. Overall average scores
+    avg_fluency = db.query(func.avg(Conversation.score_fluency)).filter(Conversation.user_id == current_user.id).scalar() or 0.0
+    avg_grammar = db.query(func.avg(Conversation.score_grammar)).filter(Conversation.user_id == current_user.id).scalar() or 0.0
+    avg_vocab = db.query(func.avg(Conversation.score_vocabulary)).filter(Conversation.user_id == current_user.id).scalar() or 0.0
     
     return {
         "user": {
@@ -40,10 +42,10 @@ def get_dashboard_stats(db: Session = Depends(get_db), current_user = Depends(ge
             "minutesPracticed": round(total_duration_sec / 60)
         },
         "recentScores": {
-            "fluency": 8.1,
-            "grammar": 7.4,
-            "vocabulary": 7.8,
-            "confidence": 8.5
+            "fluency": round(avg_fluency, 1),
+            "grammar": round(avg_grammar, 1),
+            "vocabulary": round(avg_vocab, 1),
+            "confidence": round((avg_fluency + avg_grammar) / 2, 1) if avg_fluency > 0 else 0.0
         },
         "weeklyProgress": [
             {"day": "Mon", "score": 7.2},
@@ -101,7 +103,9 @@ def get_user_profile(db: Session = Depends(get_db), current_user = Depends(get_c
     
     # Calculate badges dynamically based on real data
     streak = current_user.current_streak or 0
-    
+    avg_grammar = db.query(func.avg(Conversation.score_grammar)).filter(Conversation.user_id == current_user.id).scalar() or 0
+    avg_fluency = db.query(func.avg(Conversation.score_fluency)).filter(Conversation.user_id == current_user.id).scalar() or 0
+
     return {
         "user": {
             "name": current_user.full_name,
@@ -112,15 +116,15 @@ def get_user_profile(db: Session = Depends(get_db), current_user = Depends(get_c
         "profileStats": [
             {"label": "Current Streak", "value": f"{streak} days", "sub": "Best: 14 days"},
             {"label": "Conversations", "value": str(total_convs), "sub": "This month"},
-            {"label": "Avg Fluency", "value": "8.2", "sub": "↑ from 7.8"},
+            {"label": "Avg Fluency", "value": str(round(avg_fluency, 1)), "sub": "↑ from 7.8"},
             {"label": "Badges Earned", "value": f"{sum([streak >= 7, total_convs >= 100, ielts_convs >= 5, streak >= 30])} / 8", "sub": "Keep practicing to unlock more!"}
         ],
         "badges": [
             {"icon": "🔥", "name": "7-Day Streak", "desc": "Practiced 7 days in a row", "earned": streak >= 7},
-            {"icon": "🎯", "name": "Sharpshooter", "desc": "90%+ grammar accuracy", "earned": False},  # Placeholder until detailed scores table built
+            {"icon": "🎯", "name": "Sharpshooter", "desc": "90%+ grammar accuracy", "earned": avg_grammar >= 9.0},
             {"icon": "💬", "name": "Chatterbox", "desc": "100 conversations", "earned": total_convs >= 100},
-            {"icon": "⚡", "name": "Speed Talker", "desc": "Avg 150 WPM", "earned": False},
-            {"icon": "🏆", "name": "Fluency Master", "desc": "Score 9.0+ overall", "earned": False},
+            {"icon": "⚡", "name": "Speed Talker", "desc": "Fast thinking speed", "earned": avg_fluency >= 8.5},
+            {"icon": "🏆", "name": "Fluency Master", "desc": "Score 9.0+ overall", "earned": avg_fluency >= 9.0},
             {"icon": "📚", "name": "Vocab Virtuoso", "desc": "500 unique words used", "earned": False},
             {"icon": "🎓", "name": "IELTS Ready", "desc": "Complete 5 IELTS sessions", "earned": ielts_convs >= 5},
             {"icon": "🌟", "name": "30-Day Warrior", "desc": "Practice 30 days in a row", "earned": streak >= 30},
@@ -138,3 +142,15 @@ def get_user_profile(db: Session = Depends(get_db), current_user = Depends(get_c
             {"label": "Tips & challenges", "desc": "Send daily speaking tips", "enabled": False},
         ]
     }
+
+from pydantic import BaseModel
+class ProfileUpdateModel(BaseModel):
+    name: str
+
+@router.put("/profile")
+def update_user_profile(data: ProfileUpdateModel, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if user:
+        user.full_name = data.name
+        db.commit()
+    return {"status": "success"}
