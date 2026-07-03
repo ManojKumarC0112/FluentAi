@@ -1,0 +1,27 @@
+# Server
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+websockets
+
+# Database
+SQLAlchemy
+asyncpg
+alembic
+supabase
+
+# AI
+groq
+
+# Tools
+python-multipart
+python-dotenv
+httpx
+
+# Audio Processing
+pydub
+edge-tts
+
+# Auth
+PyJWT
